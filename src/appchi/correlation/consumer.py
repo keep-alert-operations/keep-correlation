@@ -20,7 +20,11 @@ def correlate_record(db, settings, profile, message):
         if not gate or not gate["ready"]:
             raise unavailable("correlation_not_ready")
     prepared = prepare_tenant(
-        db, tenant, profile, allow_local_preview=settings.environment == "development"
+        db,
+        tenant,
+        profile,
+        allow_local_preview=settings.environment == "development",
+        alert_ids=(envelope.alert_id,),
     )
     with db.transaction(tenant) as conn:
         coordinator(conn, tenant)
