@@ -13,12 +13,6 @@ def correlate_record(db, settings, profile, message):
         raise unavailable("changed_tenant_key_invalid")
     from appchi.correlation.runtime import prepare_tenant, worker_turn
 
-    with db.transaction(tenant) as conn:
-        gate = conn.execute(
-            "SELECT ready FROM capability_gates WHERE capability='correlation'"
-        ).fetchone()
-        if not gate or not gate["ready"]:
-            raise unavailable("correlation_not_ready")
     prepared = prepare_tenant(
         db,
         tenant,
@@ -28,6 +22,13 @@ def correlate_record(db, settings, profile, message):
     )
     with db.transaction(tenant) as conn:
         coordinator(conn, tenant)
+        # The gate is read under the coordinator, so it holds for this whole
+        # consumption; a closed gate rolls back and retries the input.
+        gate = conn.execute(
+            "SELECT ready FROM capability_gates WHERE capability='correlation'"
+        ).fetchone()
+        if not gate or not gate["ready"]:
+            raise unavailable("correlation_not_ready")
         if prepared.maintenance:
             from appchi.maintenance.runtime import InlineCorrelation, lock_catalog
 
