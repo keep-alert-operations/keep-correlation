@@ -1,4 +1,4 @@
-"""A changed event is consumed in one transaction that also checks the gate."""
+"""A changed event is consumed in one transaction under the tenant coordinator."""
 
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -7,14 +7,13 @@ from uuid import uuid4
 import pytest
 
 from appchi.correlation import consumer, runtime
-from appchi.shared.errors import AppError
 
 
 class Database:
     """Answer only the statements a non-source changed event reaches."""
 
-    def __init__(self, *, ready=True, duplicate=False):
-        self.ready, self.duplicate = ready, duplicate
+    def __init__(self, *, duplicate=False):
+        self.duplicate = duplicate
         self.transactions = []
 
     @contextmanager
@@ -25,8 +24,6 @@ class Database:
 
     def execute(self, statements, sql):
         statements.append(sql)
-        if "capability_gates" in sql:
-            return SimpleNamespace(fetchone=lambda: {"ready": self.ready})
         if "SELECT 1 FROM kafka_correlation_events" in sql:
             return SimpleNamespace(fetchone=lambda: {"?column?": 1} if self.duplicate else None)
         return SimpleNamespace(fetchone=lambda: None)
@@ -62,28 +59,19 @@ def record(monkeypatch):
     return lambda db: consumer.correlate_record(db, settings, None, message), events
 
 
-def test_one_transaction_reads_the_gate_under_the_coordinator_and_consumes(record):
+def test_one_transaction_consumes_under_the_coordinator_without_a_gate(record):
+    """Requirements: REV-39."""
     correlate, events = record
     db = Database()
     correlate(db)
-    # prepare_tenant keeps its own read-only snapshot; the separate gate
-    # transaction is gone, and offsets/positions are written by the transport.
+    # prepare_tenant keeps its own read-only snapshot, and offsets/positions are
+    # written by the transport. Correlation is always on, so no gate is read.
     assert events == ["prepare"]
     assert len(db.transactions) == 1
     statements = db.transactions[0]
     assert statements[0] == "SELECT coordinator"
-    assert "capability_gates" in statements[1]
+    assert not any("capability_gates" in sql for sql in statements)
     assert "INSERT INTO kafka_correlation_events" in statements[-1]
-
-
-def test_closed_gate_raises_before_consuming(record):
-    correlate, events = record
-    db = Database(ready=False)
-    with pytest.raises(AppError) as raised:
-        correlate(db)
-    assert raised.value.code == "correlation_not_ready"
-    assert len(db.transactions) == 1
-    assert not any("kafka_correlation_events" in sql for sql in db.transactions[0])
 
 
 def test_replayed_event_is_recognized_and_only_reasserts_its_identity(record, monkeypatch):
