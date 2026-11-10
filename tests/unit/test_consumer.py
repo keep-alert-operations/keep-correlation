@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from appchi.correlation import consumer, runtime
+from keep.correlation import consumer, runtime
 
 
 class Database:

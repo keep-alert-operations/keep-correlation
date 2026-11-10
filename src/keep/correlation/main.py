@@ -1,8 +1,8 @@
 """Correlation process entrypoint."""
 
-from appchi.correlation.consumer import correlate_record
-from appchi.kafka_changed import ChangedConsumer
-from appchi.pipeline_runtime import run
+from keep.correlation.consumer import correlate_record
+from keep.kafka_changed import ChangedConsumer
+from keep.pipeline_runtime import run
 
 
 def main():

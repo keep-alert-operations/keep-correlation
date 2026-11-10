@@ -1,9 +1,9 @@
 from dataclasses import replace
 from uuid import UUID
-from appchi.event_models import ChangedEnvelope
-from appchi.ingestion.native import parse_json
-from appchi.shared.errors import unavailable
-from appchi.shared.transactions import coordinator
+from keep.event_models import ChangedEnvelope
+from keep.ingestion.native import parse_json
+from keep.shared.errors import unavailable
+from keep.shared.transactions import coordinator
 
 
 def correlate_record(db, settings, profile, message):
@@ -11,13 +11,13 @@ def correlate_record(db, settings, profile, message):
     tenant = UUID(envelope.tenant_id)
     if message.key() != tenant.bytes:
         raise unavailable("changed_tenant_key_invalid")
-    from appchi.correlation.runtime import prepare_tenant, worker_turn
+    from keep.correlation.runtime import prepare_tenant, worker_turn
 
     prepared = prepare_tenant(db, tenant, profile, alert_ids=(envelope.alert_id,))
     with db.transaction(tenant) as conn:
         coordinator(conn, tenant)
         if prepared.maintenance:
-            from appchi.maintenance.runtime import InlineCorrelation, lock_catalog
+            from keep.maintenance.runtime import InlineCorrelation, lock_catalog
 
             catalog = replace(
                 prepared.maintenance, inline_correlation=InlineCorrelation(db, profile, prepared)
@@ -77,7 +77,7 @@ def correlate_record(db, settings, profile, message):
             (envelope.event_id, tenant, message.topic(), message.partition(), message.offset()),
         )
         if not duplicate and envelope.cause == "source" and prepared.maintenance:
-            from appchi.maintenance.runtime import publish_inline_effects
+            from keep.maintenance.runtime import publish_inline_effects
 
             publish_inline_effects(conn, {"tenant_id": tenant, "id": envelope.alert_id})
     return envelope
